@@ -1,0 +1,86 @@
+---
+title: "Practical Machine Learning - Week 4 Peer Assignment"
+author: "Aravindan Krishnan"
+date: "8/12/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analysis of Weight lifting exercises and classification into classes
+
+This Report is to publish the analysis and results of prediction of weight lifting exercises into one of five classes - A,B,C,D and E based on the sensor measurements from the fitness devices. There are 19622 observations in the training set with 160 predictors. The test set contains 20 observations with 160 predictors. Objective is to correctly classify each of the test observations into A,B,C,D or E classes. 
+
+A quick look at the training set shows that there are lots of columns which have either blanks, NA or #DIV/0! values. While reading the data into R, we will mark all of these values as NA so that we can decide to discard or impute NA values in later stages. The training and test sets have been read into R directly from the links provided in the assignment page.
+
+```{r read}
+pml.training1 <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",na.strings = c("#DIV/0!","","NA"))
+pml.testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",na.strings = c("#DIV/0!","","NA"))
+```
+
+Now check the columns which had blanks, NA or #DIV/0! values, these should have only NA substituted values.
+
+Check how many columns have NA values and how many NA values in each of these columns. This lets us know the requirement for Data Imputation.
+
+
+```{r check NA values, echo=TRUE}
+ind <- sapply(pml.training1,function(x) sum(is.na(x)))
+ind
+indNA <- ind[ind>19000]
+length(which(ind>19000))
+```
+
+We see that there are about 100 predictors which have NA values greater than 19000 with total dataset having 19622 observations. Since the % of missing values is really high, it does not make sense to perform data imputation to populate these NA values. It is probably better to remove these predictors altogether from the training set. Check the structure of the reduced training set.
+
+```{r remove 100 NA dominated predictors, echo=TRUE}
+pml.training2 <- pml.training1[-which(ind>19000)]
+str(pml.training2)
+pml2class <- sapply(pml.training2,class)
+table(pml2class)
+```
+
+We can see that the first 4 columns have no significance for our prediction. Hence we can remove them from the training set further. This leaves us with only 56 predictors from the original 160.
+
+We can further check for correlated predictors and remove them from the training set in order to reduce the predictor size further. For this we need to remove the 4 factor predictors in the training set.
+
+```{r check for nearzerovar and correlated predictors, echo=TRUE}
+pml.trainingnum <- pml.training2[pml2class != "factor"]
+library(caret)
+nearZeroVar(pml.trainingnum)
+pml.trainingnumfilt <- pml.trainingnum[-c(1:4)]
+high.cor.pml1 <- findCorrelation(cor(pml.trainingnumfilt),cutoff = 0.75)
+table(high.cor.pml1)
+```
+
+We see that none of the 56 predictors have near zero variance. so no further reduction from this method. We also check for correlated predictors with correlation > 0.75. The indices for high correlated predictors is stored to be used later to filter the training dataset further. We observe that there are 21 correlated predictors to be removed.
+
+```{r prepare final training set, echo=TRUE}
+pml.training2filt <- pml.training2[-c(1:4)]
+pml.training.finalset <- pml.training2filt[-high.cor.pml1]
+dim(pml.training.finalset)
+```
+
+Now we have the final training set which has only 35 predictors along with 19622 samples. We are now ready to run a random forest algorithm. We are using this as this method is resistant to data skews without any need for preprocessing such as centering, scaling or other transformations.the subset of random predictors to be taken is roughly square root (p) for classification problems. hence we use a value of 6. The default number of trees is 500. We simulate with 25,50 and 100 to get some quick results to ascertain the accuracy levels. Finally we settle for 100 trees as this gives good enough and fast prediction. We now review the final training set prediction accuracy.
+
+```{r predict with random forest, echo=TRUE}
+library(randomForest)
+pml.rf.fit <- randomForest(classe~.,pml.training.finalset,mtry=6,ntree=100,importance=TRUE)
+pml.rf.fit
+```
+
+The out of bag error rate is only 0.2% as show below.This seems to be a pretty good model. We can now predict the testing set values with this model.
+
+Now we prepare the test set to have same predictors as training set and predict teh test set values.
+
+```{r prepare final testing and prediction set, echo=TRUE}
+pml.testing2 <- pml.testing[-which(ind>19000)]
+pml.testing2filt <- pml.testing2[-c(1:4)]
+pml.testing.finalset <- pml.testing2filt[-high.cor.pml1]
+pml.test.pred <- predict(pml.rf.fit,pml.testing.finalset[-35])
+pml.test.pred
+```
+
+We can see the prediction for the 20 test observations. The same were submitted in the course prediction quiz with 100% score further confirming the robustness of teh fitted random forest model.
+
